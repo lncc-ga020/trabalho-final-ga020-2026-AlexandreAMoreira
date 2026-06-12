@@ -5,6 +5,48 @@
 # Este notebook tem por objetivo facilitar a implementação e explicações referentes ao trabalho final da disciplina GA-020. O foco é desenvolver e implementar um modelo numérico computacional para simular a interação hidromecânica em reservatórios. O estudo visa quantificar a difusão transiente da pressão do fluido no meio poroso ao longo do tempo e, a partir desse campo de pressões, utilizar o acoplamento de Biot como força interna motriz para determinar a resposta elástica e a consequente deformação estrutural da rocha.
 
 # %% [markdown]
+# ### Modelo matemático e formulação Variacional do problema
+#
+# Considere o sistema acoplado (uma via) governado pelas seguintes equações diferenciais parciais:
+#
+# $$
+# \begin{cases}
+# \beta\dfrac{\partial P}{\partial t} - \nabla\cdot\left(\dfrac{k}{\mu_f}\nabla P\right)=0, \\[10pt]
+# \nabla\cdot\sigma(\mathbf{u}) - \nabla P = \mathbf{0},
+# \end{cases}
+# $$
+#
+# onde o tensor de tensões para elasticidade linear isotrópica é dado por
+#
+# $$
+# \sigma(\mathbf{u}) = 2\mu\,\varepsilon(\mathbf{u}) + \lambda\,\operatorname{tr}(\varepsilon(\mathbf{u}))\,\mathbf{I},
+# $$
+#
+# e o tensor de pequenas deformações é
+#
+# $$
+# \varepsilon(\mathbf{u}) = \frac{1}{2} \left( \nabla\mathbf{u} + \nabla\mathbf{u}^{T} \right).
+# $$
+#
+# ## O Problema Discreto
+#
+# Aplicando o método de Euler implícito para a discretização temporal da equação da difusão de pressão, a formulação variacional (forma fraca) consiste em:
+#
+# **1. Problema Hidráulico:**
+# Encontrar a pressão atual $P^{n+1}\in V$ tal que, para toda função teste escalar $q\in V$,
+#
+# $$
+# \beta \int_{\Omega} P^{n+1}q\,d\Omega + \Delta t \int_{\Omega} \frac{k}{\mu_f} \nabla P^{n+1}\cdot\nabla q\,d\Omega = \beta \int_{\Omega} P^n q\,d\Omega.
+# $$
+#
+# **2. Problema Mecânico:**
+# Multiplicando a equação de equilíbrio por uma função teste vetorial $\mathbf{v}$ e integrando por partes apenas o termo da tensão (desprezando os termos naturais de contorno), a formulação variacional consiste em encontrar o deslocamento $\mathbf{u}\in W$ tal que, para toda função teste vetorial $\mathbf{v}\in W$,
+#
+# $$
+# \int_{\Omega} \sigma(\mathbf{u}) : \varepsilon(\mathbf{v}) \,d\Omega = - \int_{\Omega} \nabla P_h \cdot \mathbf{v} \,d\Omega.
+# $$
+
+# %% [markdown]
 # ### **Importação das dependências necessárias**
 #
 
@@ -15,6 +57,7 @@ os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 os.environ.setdefault("VECLIB_MAXIMUM_THREADS", "1")
 
+import numpy as np
 from firedrake import *
 
 # %% [markdown]
@@ -59,16 +102,18 @@ mu = Constant(mu_value)
 lambda_ = Constant(lambda_value)
 I = Identity(domain.geometric_dimension)
 
-# Fluido e passo de tempo:
-beta_value = 1.0  # Compressibilidade
-k_value = 2.0  # Permeabilidade
-dt_value = 0.04  # Passo de tempo
-num_steps = 75  # número de passos
-final_time = dt_value * num_steps
+# Dados do problema hidráulico
+P_inj_val = 2.5e7  # 250 bar (Injeção na Esquerda)
+P_prod_val = 1.5e7  # 150 bar (Produção na Direita)
 
-beta = Constant(beta_value)
-k_perm = Constant(k_value)
-dt = Constant(dt_value)
+total_time = 5.0 * 24.0 * 3600.0  # 5 dias em segundos
+num_steps = 100
+dt_value = total_time / num_steps
+
+beta = Constant(1.0e-10)  # Compressibilidade (Pa^-1)
+k_perm = Constant(1.0e-14)  # Permeabilidade da rocha (m²)
+mu_f = Constant(1.0e-3)  # Viscosidade da Água (Pa.s)
+dt = Constant(dt_value)  # Passo de tempo
 
 
 # %% [markdown]
@@ -125,8 +170,8 @@ def sigma(w):
 #
 # #### 2. Fronteira Hidráulica ($\partial\Omega = \Gamma_p \cup \Gamma_v$)
 # * **Pressão Prescrita ($\Gamma_p$):** Região com carga hidráulica ou pressão de poro imposta ($p = \bar{p}$). O modelo simula um gradiente de pressão clássico de reservatório:
-#   * **Injeção (Esquerda):** Mantida com pressão elevada ($p = 1.0\text{ Pa}$), simulando o contato com um poço injetor ou uma zona sobrepressurizada.
-#   * **Produção (Direita):** Mantida sob pressão nula ($p = 0.0\text{ Pa}$), atuando como uma fronteira drenante (sumidouro) que permite a dissipação e troca de fluido com o exterior.
+#   * **Injeção (Esquerda):** Mantida com pressão elevada, simulando o contato com um poço injetor ou uma zona sobrepressurizada.
+#   * **Produção (Direita):** Mantida sob pressão referente às condições de extração, atuando como uma fronteira drenante (sumidouro) que permite a dissipação e troca de fluido com o exterior.
 # * **Fluxo Normal Prescrito ($\Gamma_v$):** Região onde a velocidade de filtragem de Darcy na direção normal é controlada ($\mathbf{v} \cdot \mathbf{n} = \bar{q}$). As fronteiras superior e inferior operam sob a condição de paredes impermeáveis:
 #   $$\mathbf{v} \cdot \mathbf{n} = 0 \quad \text{em} \quad \Gamma_v \text{ (Superior e Inferior)}$$
 #   Isto força o fluxo de fluido a deslocar-se estritamente de forma horizontal, da esquerda para a direita.
@@ -147,10 +192,64 @@ P_initial = Function(Q, name="pressao_plot_inicial").assign(P_n)
 
 # Condições de Contorno
 bc_u = DirichletBC(V, Constant((0.0, 0.0)), 1)  # Engastado na esquerda
-bc_P_esq = DirichletBC(Q, 1.0, 1)  # Pressão maior na esquerda
-bc_P_dir = DirichletBC(Q, 0.0, 2)  # Pressão menor na direita
+bc_P_esq = DirichletBC(Q, P_inj_val, 1)  # Pressão maior na esquerda
+bc_P_dir = DirichletBC(Q, P_prod_val, 2)  # Pressão menor na direita
 bcs_fluido = [bc_P_esq, bc_P_dir]
 
 # Funções para armazenar os campos atuais - SOLUÇÕES
 P_h = Function(Q, name="pressao_atual")
 u_h = Function(V, name="deslocamento_atual")
+
+# %%
+# Forma fraca das edp's
+
+a_fluido = (beta * P * q + dt * (k_perm / mu_f) * inner(grad(P), grad(q))) * dx
+L_fluido = beta * P_n * q * dx
+
+a_solido = inner(sigma(u), epsilon(v)) * dx
+L_solido = -dot(grad(P_h), v) * dx
+
+# %% [markdown]
+# ### Loop temporal
+
+# %%
+# Armazenar QOIs
+times = np.linspace(0.0, total_time, num_steps + 1)  # discretização do domínio temporal
+mean_pressures = np.zeros(num_steps + 1)
+max_displacements = np.zeros(num_steps + 1)
+strain_energies = np.zeros(num_steps + 1)
+domain_area = float(assemble(Constant(1.0) * dx(domain)))
+
+for step in range(1, num_steps + 1):
+    # Resolver problema hidráulico
+    solve(
+        a_fluido == L_fluido,
+        P_h,
+        bcs=bcs_fluido,
+        solver_parameters={"ksp_type": "preonly", "pc_type": "lu"},
+    )
+
+    # Resolver problema mecânico
+    solve(
+        a_solido == L_solido,
+        u_h,
+        bcs=bc_u,
+        solver_parameters={"ksp_type": "preonly", "pc_type": "lu"},
+    )
+
+    # Armazenar a Pressão Média (Pa)
+    mean_pressures[step] = float(assemble(P_h * dx) / domain_area)
+
+    # Deslocamento máximo
+    u_mag_temp = Function(Q).interpolate(sqrt(dot(u_h, u_h)))
+    max_displacements[step] = u_mag_temp.dat.data_ro.max()
+
+    # Energia Elástica - AULA MEF (Volpatto)
+    strain_energies[step] = float(assemble(0.5 * inner(sigma(u_h), epsilon(u_h)) * dx))
+
+    P_n.assign(P_h)
+
+print("Simulação temporal concluída!\n")
+
+# %% [markdown]
+# ### Quantidades de interesse do problema - Recuperadas a partir das soluções obtidas
