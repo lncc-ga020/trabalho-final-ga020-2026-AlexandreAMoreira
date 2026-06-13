@@ -189,7 +189,7 @@ def sigma(w):
 #
 # #### 3. Condições Iniciais ($t = 0$)
 # Como o acoplamento implementado é do tipo One-Way com uma mecânica quasi-estática (equilíbrio mecânico instantâneo a cada instante), a variável que dita a evolução temporal difusiva é a pressão de poro. Define-se o estado hidráulico inicial como um meio totalmente descarregado:
-# $$p(\mathbf{x}, 0) = 0.0 \quad \text{em todo o domínio } \Omega$$
+# $$p(\mathbf{x}, 0) = 150 \quad \text{bar} \quad \text{ => em todo o domínio } \Omega$$
 #
 # #### Interdependência Física das Fronteiras
 # É fundamental destacar que as condições de contorno mecânicas e hidráulicas não são independentes do ponto de vista da resposta física do sistema. A restrição mecânica na esquerda impede a variação do volume local do esqueleto ($\nabla \cdot \mathbf{u} = 0$), o que altera o armazenamento poromecânico aparente e induz respostas de pressão de poro e tensões efetivas locais radicalmente distintas das regiões onde a malha possui total liberdade para expandir ou compactar.
@@ -379,5 +379,86 @@ fig_spatial.colorbar(
 fig_spatial.colorbar(
     c2, ax=axes[1, :], label="Magnitude Deslocamento (m)", location="right", aspect=20
 )
+
+plt.show()
+
+# %% [markdown]
+# De maneira análoga ao apresentado na aula sobre implementação de Elementos Finitos, plota-se o campo vetorial com quiver. Em seguida, exibe-se a magnitude e as duas componentes do deslocamento. 
+
+# %%
+fig_q, ax_q = plt.subplots(figsize=(8, 4), constrained_layout=True)
+collection_q = quiver(u_h, axes=ax_q, scale=0.5, width=0.003, headwidth=4, headlength=5)
+fig_q.colorbar(collection_q, ax=ax_q, label=r"Deslocamento $|\mathbf{u}|$ (m)")
+ax_q.set_aspect("equal")
+ax_q.set_xlabel("x (m)")
+ax_q.set_ylabel("y (m)")
+ax_q.set_title("Campo de deslocamentos")
+plt.show()
+
+# %%
+fig, axes = plt.subplots(1, 3, figsize=(14, 3.2), constrained_layout=True)
+
+for ax, field, title, cmap in [
+    (axes[0], u_mag, r"Magnitude $|\mathbf{u}|$ (m)", "viridis"),
+    (axes[1], u_x, r"Componente $u_x$ (m)", "coolwarm"),
+    (axes[2], u_y, r"Componente $u_y$ (m)", "coolwarm"),
+]:
+    collection = tripcolor(field, axes=ax, cmap=cmap)
+    fig.colorbar(collection, ax=ax)
+    ax.set_aspect("equal")
+    ax.set_xlabel("x (m)")
+    ax.set_ylabel("y (m)")
+    ax.set_title(title)
+
+plt.show()
+
+# %% [markdown]
+# ![image.png](attachment:image.png)
+
+# %%
+print("Resultados - Darcy, Deformação Volumétrica e von Mises")
+
+# 1. Velocidade de Darcy - Calculada usando o gradiente da pressão no estado final (P_h)
+v_darcy = project(-(k_perm / mu_f) * grad(P_h), V)
+
+# 2. Deformação Volumétrica (Escalar)
+eps_vol = project(div(u_h), Q)
+
+# 3. Tensão de von Mises (Escalar) - Usando as componentes da matriz de tensão
+sig = sigma(u_h)
+von_Mises_expr = sqrt(
+    sig[0, 0] ** 2 + sig[1, 1] ** 2 - sig[0, 0] * sig[1, 1] + 3 * sig[0, 1] ** 2
+)
+von_Mises = project(von_Mises_expr, Q)
+
+
+# Campo de velocidades (Darcy)
+fig_d, ax_d = plt.subplots(figsize=(8, 4), constrained_layout=True)
+# Lembrete: ajusta o "scale" (ex: 1e-8, 1e-9) se as setas ficarem muito grandes ou pequenas
+col_d = quiver(v_darcy, axes=ax_d, cmap="Blues", scale=1e-8, width=0.003, headwidth=4)
+fig_d.colorbar(col_d, ax=ax_d, label="Velocidade de Darcy (m/s)")
+ax_d.set_xlabel("x (m)")
+ax_d.set_ylabel("y (m)")
+ax_d.set_title("Campo de Fluxo (Velocidade de Darcy)")
+ax_d.set_aspect("equal")
+plt.show()
+
+# Tensões - verde mostra expansão, rosa/roxo mostra compressão
+fig_em, axes_em = plt.subplots(1, 2, figsize=(14, 4), constrained_layout=True)
+
+c_vol = tripcolor(eps_vol, axes=axes_em[0], cmap="PiYG")
+fig_em.colorbar(c_vol, ax=axes_em[0], label="Deformação Volumétrica")
+axes_em[0].set_xlabel("x (m)")
+axes_em[0].set_ylabel("y (m)")
+axes_em[0].set_title(r"Deformação Volumétrica $\nabla \cdot \mathbf{u}$")
+axes_em[0].set_aspect("equal")
+
+# Tensão de von Mises
+c_vm = tripcolor(von_Mises, axes=axes_em[1], cmap="inferno")
+fig_em.colorbar(c_vm, ax=axes_em[1], label="Tensão de von Mises (Pa)")
+axes_em[1].set_xlabel("x (m)")
+axes_em[1].set_ylabel("y (m)")
+axes_em[1].set_title("Tensão de von Mises")
+axes_em[1].set_aspect("equal")
 
 plt.show()
