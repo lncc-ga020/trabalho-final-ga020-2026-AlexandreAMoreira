@@ -115,12 +115,14 @@ I = Identity(domain.geometric_dimension)
 P_inj_val = 2.0e7  # 200 bar (Injeção na Esquerda)
 P_prod_val = 1.0e7  # 100 bar (Produção na Direita)
 
-total_time = 5.0 * 24.0 * 3600.0  # 5 dias em segundos
+# total_time = 5.0 * 24.0 * 3600   # 5 dias em segundos
+total_time = 110.0 * 24.0 * 3600  # 5 dias em segundos
+
 num_steps = 150
 dt_value = total_time / num_steps
 
-beta = Constant(1.0e-10)  # Compressibilidade (Pa^-1)
-k_perm = Constant(1.0e-12)  # Permeabilidade da rocha (m²)
+beta = Constant(1.0e-9)  # Compressibilidade (Pa^-1)
+k_perm = Constant(1.0e-14)  # Permeabilidade da rocha (m²) k_perm = Constant(1.0e-15)
 mu_f = Constant(1.0e-3)  # Viscosidade da Água (Pa.s)
 dt = Constant(dt_value)  # Passo de tempo
 
@@ -196,7 +198,8 @@ def sigma(w):
 # Condições iniciais e de contorno
 
 # Condição Inicial -> Pressão nula em todo o domínio no tempo t=0
-P_n = Function(Q, name="pressao_inicial").assign(0.0)
+P0 = 1.0e7  # 150 bar
+P_n = Function(Q, name="pressao_inicial").assign(P0)
 P_initial = Function(Q, name="pressao_plot_inicial").assign(P_n)
 
 # Condições de Contorno
@@ -224,10 +227,31 @@ L_solido = -dot(grad(P_h), v) * dx
 # %%
 # Armazenar QOIs
 times = np.linspace(0.0, total_time, num_steps + 1)  # discretização do domínio temporal
+times_days = times / (24.0 * 3600.0)
 mean_pressures = np.zeros(num_steps + 1)
 max_displacements = np.zeros(num_steps + 1)
 strain_energies = np.zeros(num_steps + 1)
 domain_area = float(assemble(Constant(1.0) * dx(domain)))
+
+
+# Estado inicial (t = 0)
+mean_pressures[0] = float(assemble(P_n * dx) / domain_area)
+u_mag_temp = Function(Q).interpolate(sqrt(dot(u_h, u_h)))
+max_displacements[0] = u_mag_temp.dat.data_ro.max()
+strain_energies[0] = float(assemble(0.5 * inner(sigma(u_h), epsilon(u_h)) * dx))
+
+
+# Para plotagem dos campos em instantes arbitrários - Sugestão Volpatto
+steps_to_plot = [
+    int(num_steps * 0.05),
+    int(num_steps * 0.25),
+    int(num_steps * 0.60),
+    num_steps,
+]
+P_instantes = []
+u_instantes = []
+t_instantes = []
+
 
 for step in range(1, num_steps + 1):
     # Resolver problema hidráulico
@@ -255,6 +279,12 @@ for step in range(1, num_steps + 1):
 
     # Energia Elástica - AULA MEF (Volpatto)
     strain_energies[step] = float(assemble(0.5 * inner(sigma(u_h), epsilon(u_h)) * dx))
+
+    # Salvar campos nos instantes definidos
+    if step in steps_to_plot:
+        P_instantes.append(Function(Q).assign(P_h))
+        u_instantes.append(Function(V).assign(u_h))
+        t_instantes.append(times_days[step])
 
     P_n.assign(P_h)
 
@@ -286,8 +316,6 @@ print("-----------------------------------------\n")
 # ### Evolução temporal
 
 # %%
-times_days = times / (24.0 * 3600.0)
-
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 5), constrained_layout=True)
 
 ax1.plot(times_days, mean_pressures / 1e6, "r-", linewidth=2.5, label="Pressão Média")
@@ -318,4 +346,38 @@ ax2_disp.grid(True)
 ax2_disp.set_title("Respostas Mecânicas Associadas")
 
 # plt.savefig("historico_temporal.png", dpi=300)
+plt.show()
+
+# %% [markdown]
+# ### **Evolução espacial do campo de pressões e de deslocamentos**
+
+# %%
+num_instantes = len(t_instantes)
+fig_spatial, axes = plt.subplots(
+    2, num_instantes, figsize=(16, 7), constrained_layout=True
+)
+
+for i in range(num_instantes):
+    # Linha 1: Evolução da Pressão
+    P_MPa = Function(Q).assign(P_instantes[i] / 1e6)
+    c1 = tripcolor(P_MPa, axes=axes[0, i], cmap="jet", vmin=10.0, vmax=20.0)
+    axes[0, i].set_title(f"Pressão - {t_instantes[i]:.1f} Dias")
+    axes[0, i].set_aspect("equal")
+    axes[0, i].axis("off")
+
+    # Linha 2: Evolução do Deslocamento
+    u_mag = Function(Q).interpolate(sqrt(dot(u_instantes[i], u_instantes[i])))
+    c2 = tripcolor(u_mag, axes=axes[1, i], cmap="viridis")
+    axes[1, i].set_title(f"|u| - {t_instantes[i]:.1f} Dias")
+    axes[1, i].set_aspect("equal")
+    axes[1, i].axis("off")
+
+# Adicionar barras de cor para o painel
+fig_spatial.colorbar(
+    c1, ax=axes[0, :], label="Pressão (MPa)", location="right", aspect=20
+)
+fig_spatial.colorbar(
+    c2, ax=axes[1, :], label="Magnitude Deslocamento (m)", location="right", aspect=20
+)
+
 plt.show()
