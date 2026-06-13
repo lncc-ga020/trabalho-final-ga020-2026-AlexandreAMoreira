@@ -5,7 +5,7 @@
 # Este notebook tem por objetivo facilitar a implementação e explicações referentes ao trabalho final da disciplina GA-020. O foco é desenvolver e implementar um modelo numérico computacional para simular a interação hidromecânica em reservatórios. O estudo visa quantificar a difusão transiente da pressão do fluido no meio poroso ao longo do tempo e, a partir desse campo de pressões, utilizar o acoplamento de Biot como força interna motriz para determinar a resposta elástica e a consequente deformação estrutural da rocha.
 
 # %% [markdown]
-# ### Modelo matemático e formulação Variacional do problema
+# ### **Modelo matemático e formulação Variacional do problema**
 #
 # Considere o sistema acoplado (uma via) governado pelas seguintes equações diferenciais parciais:
 #
@@ -28,7 +28,7 @@
 # \varepsilon(\mathbf{u}) = \frac{1}{2} \left( \nabla\mathbf{u} + \nabla\mathbf{u}^{T} \right).
 # $$
 #
-# ## O Problema Discreto
+# ## **O Problema Discreto**
 #
 # Aplicando o método de Euler implícito para a discretização temporal da equação da difusão de pressão, a formulação variacional (forma fraca) consiste em:
 #
@@ -51,21 +51,30 @@
 #
 
 # %%
+# fmt: off
+# isort: off
+
 import os
 
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 os.environ.setdefault("VECLIB_MAXIMUM_THREADS", "1")
 
+import matplotlib.pyplot as plt
 import numpy as np
 from firedrake import *
+
+# isort: on
+# fmt: on
 
 # %% [markdown]
 # ### **Definição da geometria da malha e dos espaços de funções**
 
 # %%
-domain = UnitSquareMesh(24, 24)
-x, y = SpatialCoordinate(domain)
+Lx = 200.0  # metros
+Ly = 200.0  # metros
+domain = RectangleMesh(100, 100, Lx, Ly)
+
 V = VectorFunctionSpace(domain, "CG", 1)  # Deslocamento do Sólido (Vetor)
 Q = FunctionSpace(domain, "CG", 1)  # Pressão do Fluido (Escalar)
 
@@ -94,8 +103,8 @@ q = TestFunction(Q)
 
 # %%
 # Sólido:
-E = 1.0
-nu = 0.30
+E = 10.0e9
+nu = 0.25
 mu_value = E / (2.0 * (1.0 + nu))
 lambda_value = E * nu / ((1.0 + nu) * (1.0 - 2.0 * nu))
 mu = Constant(mu_value)
@@ -103,15 +112,15 @@ lambda_ = Constant(lambda_value)
 I = Identity(domain.geometric_dimension)
 
 # Dados do problema hidráulico
-P_inj_val = 2.5e7  # 250 bar (Injeção na Esquerda)
-P_prod_val = 1.5e7  # 150 bar (Produção na Direita)
+P_inj_val = 2.0e7  # 200 bar (Injeção na Esquerda)
+P_prod_val = 1.0e7  # 100 bar (Produção na Direita)
 
 total_time = 5.0 * 24.0 * 3600.0  # 5 dias em segundos
-num_steps = 100
+num_steps = 150
 dt_value = total_time / num_steps
 
 beta = Constant(1.0e-10)  # Compressibilidade (Pa^-1)
-k_perm = Constant(1.0e-14)  # Permeabilidade da rocha (m²)
+k_perm = Constant(1.0e-12)  # Permeabilidade da rocha (m²)
 mu_f = Constant(1.0e-3)  # Viscosidade da Água (Pa.s)
 dt = Constant(dt_value)  # Passo de tempo
 
@@ -253,3 +262,60 @@ print("Simulação temporal concluída!\n")
 
 # %% [markdown]
 # ### Quantidades de interesse do problema - Recuperadas a partir das soluções obtidas
+# | 1. Evolução Temporal | 2. Campos Espaciais (2D) | 3. Quantidades Derivadas |
+# | :--- | :--- | :--- |
+# | • Pressão média do reservatório <br> • Deslocamento máximo da rocha <br> • Energia elástica de deformação | • Campo de pressão Inicial <br> • Campo de pressão Final <br> • Magnitude e cinemática do deslocamento <br> • Campo de tensão de Von Mises | • Limites do deslocamento horizontal ($u_{x}$) <br> • Limites do deslocamento vertical ($u_{y}$) <br> • Pico da magnitude do deslocamento ($\|u\|$) <br> • Energia elástica total |
+
+# %%
+# Quantidades derivadas
+
+print("Quantidades de interesse de engenharia\n")
+print("-----------------------------------------")
+u_x = Function(Q, name="u_x").interpolate(u_h[0])
+u_y = Function(Q, name="u_y").interpolate(u_h[1])
+u_mag = Function(Q, name="u_mag").interpolate(sqrt(dot(u_h, u_h)))
+strain_energy = 0.5 * assemble(inner(sigma(u_h), epsilon(u_h)) * dx)
+
+print(f"u_x em [{u_x.dat.data_ro.min():.6e}, {u_x.dat.data_ro.max():.6e}] m")
+print(f"u_y em [{u_y.dat.data_ro.min():.6e}, {u_y.dat.data_ro.max():.6e}] m")
+print(f"|u| máximo: {u_mag.dat.data_ro.max():.6e} m")
+print(f"Energia elástica total: {float(strain_energy):.6e} J")
+print("-----------------------------------------\n")
+
+# %% [markdown]
+# ### Evolução temporal
+
+# %%
+times_days = times / (24.0 * 3600.0)
+
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 5), constrained_layout=True)
+
+ax1.plot(times_days, mean_pressures / 1e6, "r-", linewidth=2.5, label="Pressão Média")
+ax1.set_xlabel("Tempo (Dias)")
+ax1.set_ylabel("Pressão Média (MPa)")
+ax1.grid(True)
+ax1.legend(loc="lower right")
+ax1.set_title("Evolução do Fluxo Transiente")
+
+ax2_disp = ax2
+ax2_energy = ax2.twinx()
+
+line1 = ax2_disp.plot(
+    times_days, max_displacements, "b-", linewidth=2, label="Deslocamento Máx. (m)"
+)
+line2 = ax2_energy.plot(
+    times_days, strain_energies, "g--", linewidth=2, label="Energia Elástica (J)"
+)
+
+ax2_disp.set_xlabel("Tempo (Dias)")
+ax2_disp.set_ylabel("Deslocamento Máximo (m)", color="b")
+ax2_energy.set_ylabel("Energia Elástica (J)", color="g")
+
+lines = line1 + line2
+labels = [l.get_label() for l in lines]
+ax2_disp.legend(lines, labels, loc="lower right")
+ax2_disp.grid(True)
+ax2_disp.set_title("Respostas Mecânicas Associadas")
+
+# plt.savefig("historico_temporal.png", dpi=300)
+plt.show()
