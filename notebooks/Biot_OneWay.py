@@ -2,7 +2,27 @@
 # ### **Modelagem Numérica do Acoplamento Hidromecânico em Reservatórios**
 
 # %% [markdown]
+# **Aluno:** Alexandre Altamir Moreira
+#
+# Mestrado em Modelagem Computacional - LNCC (2026)
+#
 # Este notebook tem por objetivo facilitar a implementação e explicações referentes ao trabalho final da disciplina GA-020. O foco é desenvolver e implementar um modelo numérico computacional para simular a interação hidromecânica em reservatórios. O estudo visa quantificar a difusão transiente da pressão do fluido no meio poroso ao longo do tempo e, a partir desse campo de pressões, utilizar o acoplamento de Biot como força interna motriz para determinar a resposta elástica e a consequente deformação estrutural da rocha.
+
+# %% [markdown]
+# ### **Hipóteses do Modelo**
+#
+# Neste trabalho, considera-se um problema de poroelasticidade baseado na teoria linear de Biot, adotando-se um acoplamento unidirecional (one-way coupling), no qual o campo de pressão influencia a resposta mecânica do meio, mas as deformações do esqueleto sólido não afetam a evolução do escoamento. Para a formulação do problema, são assumidas as seguintes hipóteses:
+#
+# - O meio poroso encontra-se completamente saturado por uma única fase fluida, homogênea e contínua.
+# - As deformações do esqueleto sólido são suficientemente pequenas ($\|\nabla \mathbf{u}\| \ll 1$) para justificar a teoria da elasticidade linear e a linearização das equações governantes.
+# - As variações das grandezas físicas em torno do estado de referência são pequenas, permitindo a adoção de um regime de pequenas perturbações.
+# - O comportamento mecânico ocorre em regime quasi-estático, de modo que os efeitos inerciais são desprezados em comparação com as forças de equilíbrio.
+# - O escoamento do fluido através do meio poroso é governado pela Lei de Darcy, assumindo fluxo laminar e permeabilidade constante.
+# - O esqueleto sólido apresenta comportamento poroelástico linear isotrópico, caracterizado por propriedades mecânicas independentes da direção considerada.
+# - Efeitos térmicos, químicos, capilares e processos inelásticos, tais como plasticidade, dano ou fraturamento, são desconsiderados.
+# - O coeficiente de Biot é assumido igual à unidade ($\alpha = 1$), implicando que as variações de pressão nos poros são integralmente transmitidas ao esqueleto sólido. Essa hipótese é frequentemente adotada para materiais altamente porosos e permite simplificar a formulação do problema.
+#
+# Sob essas hipóteses, busca-se desenvolver a formulação deslocamento-pressão (u-p) da poroelasticidade linear, na qual os campos de deslocamento do sólido e pressão de poros constituem as variáveis primárias do problema.
 
 # %% [markdown]
 # ### **Modelo matemático e formulação Variacional do problema**
@@ -116,7 +136,7 @@ P_inj_val = 2.0e7  # 200 bar (Injeção na Esquerda)
 P_prod_val = 1.0e7  # 100 bar (Produção na Direita)
 
 # total_time = 5.0 * 24.0 * 3600   # 5 dias em segundos
-total_time = 110.0 * 24.0 * 3600  # 5 dias em segundos
+total_time = 110.0 * 24.0 * 3600
 
 num_steps = 150
 dt_value = total_time / num_steps
@@ -415,6 +435,9 @@ plt.show()
 # %% [markdown]
 # ![image.png](attachment:image.png)
 
+# %% [markdown]
+# Para a análise do problema hidro-mecânico, foram selecionadas três variáveis de interesse que representam aspectos complementares do comportamento do meio poroso: a velocidade de Darcy, a deformação volumétrica e a tensão equivalente de von Mises. A velocidade de Darcy permite avaliar a distribuição espacial do fluxo de fluido no domínio, identificando regiões de maior ou menor escoamento e fornecendo informações sobre os mecanismos de transporte através do meio poroso. A deformação volumétrica, calculada pelo divergente do campo de deslocamentos, é utilizada para quantificar a variação local de volume do material, indicando zonas de compressão ou expansão associadas à interação entre pressões de poros e deformações da matriz sólida. Por fim, a tensão equivalente de von Mises é empregada como um indicador escalar do estado de tensões mecânicas, permitindo identificar regiões sujeitas a maiores concentrações de tensões e, consequentemente, mais suscetíveis a processos de deformação permanente ou falha do material.
+
 # %%
 print("Resultados - Darcy, Deformação Volumétrica e von Mises")
 
@@ -434,7 +457,6 @@ von_Mises = project(von_Mises_expr, Q)
 
 # Campo de velocidades (Darcy)
 fig_d, ax_d = plt.subplots(figsize=(8, 4), constrained_layout=True)
-# Lembrete: ajusta o "scale" (ex: 1e-8, 1e-9) se as setas ficarem muito grandes ou pequenas
 col_d = quiver(v_darcy, axes=ax_d, cmap="Blues", scale=1e-8, width=0.003, headwidth=4)
 fig_d.colorbar(col_d, ax=ax_d, label="Velocidade de Darcy (m/s)")
 ax_d.set_xlabel("x (m)")
