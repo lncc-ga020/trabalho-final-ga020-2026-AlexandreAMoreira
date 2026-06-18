@@ -83,6 +83,7 @@ os.environ.setdefault("VECLIB_MAXIMUM_THREADS", "1")
 import matplotlib.pyplot as plt
 import numpy as np
 from firedrake import *
+from firedrake import PointEvaluator
 
 # isort: on
 # fmt: on
@@ -135,14 +136,13 @@ I = Identity(domain.geometric_dimension)
 P_inj_val = 2.5e7  # 250 bar (Injeção na Esquerda)
 P_prod_val = 1.5e7  # 150 bar (Produção na Direita)
 
-# total_time = 5.0 * 24.0 * 3600   # 5 dias em segundos
+# Discretização temporal
 total_time = 100.0 * 24.0 * 3600
-
 num_steps = 150
 dt_value = total_time / num_steps
 
-beta = Constant(1.0e-9)  # Compressibilidade (Pa^-1)
-k_perm = Constant(1.0e-14)  # Permeabilidade da rocha (m²) k_perm = Constant(1.0e-15)
+beta = Constant(5.0e-9)  # Compressibilidade (Pa^-1)
+k_perm = Constant(1.0e-17)  # Permeabilidade da rocha (m²) k_perm = Constant(1.0e-15)
 mu_f = Constant(1.0e-3)  # Viscosidade da Água (Pa.s)
 dt = Constant(dt_value)  # Passo de tempo
 
@@ -223,7 +223,7 @@ def sigma(w):
 # Condições iniciais e de contorno
 
 # Condição Inicial
-P0 = 2.0e7  # 150 bar
+P0 = 2.0e7
 P_n = Function(Q, name="pressao_inicial").assign(P0)
 P_initial = Function(Q, name="pressao_plot_inicial").assign(P_n)
 
@@ -534,9 +534,11 @@ x_coords = np.linspace(0.0, Lx, num_pontos)
 pontos_corte = [(x, Ly / 2.0) for x in x_coords]
 
 # Extração dos perfis
-p_perfil = np.array(P_h.at(pontos_corte, tolerance=1e-6)) / 1e6  # MPa
-u_perfil = np.array(u_mag.at(pontos_corte, tolerance=1e-6))  # m
-u_y_perfil = np.array(u_y.at(pontos_corte, tolerance=1e-6))  # m
+eval_Q = PointEvaluator(domain, pontos_corte)
+
+p_perfil = np.array(eval_Q.evaluate(P_h)) / 1e6
+u_perfil = np.array(eval_Q.evaluate(u_mag))
+u_y_perfil = np.array(eval_Q.evaluate(u_y))
 
 
 fig_perfil, ax_p = plt.subplots(figsize=(10, 5), constrained_layout=True)
@@ -554,7 +556,6 @@ ax_p.grid(True, which="both", linestyle=":", alpha=0.6)
 
 # Eixo direito: Magnitude do deslocamento
 ax_u = ax_p.twinx()
-
 linha_u = ax_u.plot(
     x_coords,
     u_perfil,
@@ -563,7 +564,6 @@ linha_u = ax_u.plot(
     linewidth=2.5,
     label=r"Magnitude $\|\mathbf{u}\|$ (m)",
 )
-
 linha_uy = ax_u.plot(
     x_coords,
     u_y_perfil,
@@ -572,7 +572,6 @@ linha_uy = ax_u.plot(
     linewidth=2.5,
     label=r"Deslocamento Vertical $u_y$ (m)",
 )
-
 
 ax_u.set_ylabel("Deslocamento (m)", color="blue")
 ax_u.tick_params(axis="y", labelcolor="blue")
