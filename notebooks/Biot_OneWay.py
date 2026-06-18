@@ -132,8 +132,8 @@ lambda_ = Constant(lambda_value)
 I = Identity(domain.geometric_dimension)
 
 # Dados do problema hidráulico
-P_inj_val = 2.0e7  # 200 bar (Injeção na Esquerda)
-P_prod_val = 1.0e7  # 100 bar (Produção na Direita)
+P_inj_val = 2.5e7  # 250 bar (Injeção na Esquerda)
+P_prod_val = 1.5e7  # 150 bar (Produção na Direita)
 
 # total_time = 5.0 * 24.0 * 3600   # 5 dias em segundos
 total_time = 100.0 * 24.0 * 3600
@@ -222,8 +222,8 @@ def sigma(w):
 # %%
 # Condições iniciais e de contorno
 
-# Condição Inicial -> Pressão nula em todo o domínio no tempo t=0
-P0 = 1.0e7  # 150 bar
+# Condição Inicial
+P0 = 2.0e7  # 150 bar
 P_n = Function(Q, name="pressao_inicial").assign(P0)
 P_initial = Function(Q, name="pressao_plot_inicial").assign(P_n)
 
@@ -473,7 +473,15 @@ von_Mises = project(von_Mises_expr, Q)
 
 # Campo de velocidades (Darcy)
 fig_d, ax_d = plt.subplots(figsize=(8, 4), constrained_layout=True)
-col_d = quiver(v_darcy, axes=ax_d, cmap="Blues", scale=1e-8, width=0.003, headwidth=4)
+col_d = quiver(
+    v_darcy,
+    axes=ax_d,
+    cmap="Blues",
+    scale=1e-6,
+    width=0.004,
+    headwidth=3.5,
+    headlength=4.5,
+)
 fig_d.colorbar(col_d, ax=ax_d, label="Velocidade de Darcy (m/s)")
 ax_d.set_xlabel("x (m)")
 ax_d.set_ylabel("y (m)")
@@ -528,6 +536,7 @@ pontos_corte = [(x, Ly / 2.0) for x in x_coords]
 # Extração dos perfis
 p_perfil = np.array(P_h.at(pontos_corte, tolerance=1e-6)) / 1e6  # MPa
 u_perfil = np.array(u_mag.at(pontos_corte, tolerance=1e-6))  # m
+u_y_perfil = np.array(u_y.at(pontos_corte, tolerance=1e-6))  # m
 
 
 fig_perfil, ax_p = plt.subplots(figsize=(10, 5), constrained_layout=True)
@@ -545,6 +554,7 @@ ax_p.grid(True, which="both", linestyle=":", alpha=0.6)
 
 # Eixo direito: Magnitude do deslocamento
 ax_u = ax_p.twinx()
+
 linha_u = ax_u.plot(
     x_coords,
     u_perfil,
@@ -553,14 +563,30 @@ linha_u = ax_u.plot(
     linewidth=2.5,
     label=r"Magnitude $\|\mathbf{u}\|$ (m)",
 )
-ax_u.set_ylabel(r"Magnitude do Deslocamento $\|\mathbf{u}\|$ (m)", color="blue")
+
+linha_uy = ax_u.plot(
+    x_coords,
+    u_y_perfil,
+    color="darkgreen",
+    linestyle="-.",
+    linewidth=2.5,
+    label=r"Deslocamento Vertical $u_y$ (m)",
+)
+
+
+ax_u.set_ylabel("Deslocamento (m)", color="blue")
 ax_u.tick_params(axis="y", labelcolor="blue")
 
-linhas_totais = linha_p + linha_u
+linhas_totais = linha_p + linha_u + linha_uy
 labels_totais = [linha.get_label() for linha in linhas_totais]
 
-ax_p.legend(linhas_totais, labels_totais, loc="upper right", frameon=True)
-ax_p.set_title(
-    r"Perfis de Pressão de Poros e Deslocamento ao Longo de $y=L_y/2$", fontsize=13
+ax_p.set_title(r"Perfis Hidromecânicos ao Longo de $y=L_y/2$", fontsize=13)
+ax_p.legend(
+    linhas_totais,
+    labels_totais,
+    loc="lower center",
+    bbox_to_anchor=(0.5, 1.05),
+    ncol=2,
+    frameon=True,
 )
 plt.show()
