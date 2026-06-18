@@ -63,7 +63,7 @@
 # Multiplicando a equação de equilíbrio por uma função teste vetorial $\mathbf{v}$ e integrando por partes apenas o termo da tensão (desprezando os termos naturais de contorno), a formulação variacional consiste em encontrar o deslocamento $\mathbf{u}\in W$ tal que, para toda função teste vetorial $\mathbf{v}\in W$,
 #
 # $$
-# \int_{\Omega} \sigma(\mathbf{u}) : \varepsilon(\mathbf{v}) \,d\Omega = - \int_{\Omega} \nabla P_h \cdot \mathbf{v} \,d\Omega.
+# \int_{\Omega} \boldsymbol{\sigma}'(\mathbf{u}) : \varepsilon(\mathbf{v}) \, d\Omega = \int_{\Omega} P (\nabla \cdot \mathbf{v}) \, d\Omega + \int_{\Gamma_N} \mathbf{t} \cdot \mathbf{v} \, d\Gamma
 # $$
 
 # %% [markdown]
@@ -93,9 +93,9 @@ from firedrake import *
 # %%
 Lx = 200.0  # metros
 Ly = 200.0  # metros
-domain = RectangleMesh(100, 100, Lx, Ly)
+domain = RectangleMesh(40, 40, Lx, Ly)
 
-V = VectorFunctionSpace(domain, "CG", 1)  # Deslocamento do Sólido (Vetor)
+V = VectorFunctionSpace(domain, "CG", 2)  # Deslocamento do Sólido (Vetor)
 Q = FunctionSpace(domain, "CG", 1)  # Pressão do Fluido (Escalar)
 
 # Funções teste
@@ -136,7 +136,7 @@ P_inj_val = 2.0e7  # 200 bar (Injeção na Esquerda)
 P_prod_val = 1.0e7  # 100 bar (Produção na Direita)
 
 # total_time = 5.0 * 24.0 * 3600   # 5 dias em segundos
-total_time = 110.0 * 24.0 * 3600
+total_time = 100.0 * 24.0 * 3600
 
 num_steps = 150
 dt_value = total_time / num_steps
@@ -194,25 +194,30 @@ def sigma(w):
 # A fronteira total do domínio ($\partial\Omega$) é dividida em partições disjuntas para os campos mecânico e hidráulico:
 #
 # #### 1. Fronteira Mecânica ($\partial\Omega = \Gamma_u \cup \Gamma_t$)
-# * **Deslocamento Prescrito ($\Gamma_u$):** Região onde o vetor de deslocamento é imposto ($\mathbf{u} = \bar{\mathbf{u}}$). No modelo atual, a fronteira esquerda está configurada com uma condição de Dirichlet homogênea:
-#   $$\mathbf{u} = (0.0, 0.0)^T \quad \text{em} \quad \Gamma_u \text{ (Esquerda)}$$
-#   Fisicamente, isto representa um suporte rígido engastado, impedindo qualquer movimento ou deformação do esqueleto sólido nessa extremidade.
-# * **Tração Prescrita ($\Gamma_t$):** Região onde forças de superfície ou tensões externas são aplicadas ($\sigma \mathbf{n} = \bar{\mathbf{t}}$). As restantes fronteiras que não possuem restrição explícita de deslocamento atuam como superfícies livres com tração nula ($\bar{\mathbf{t}} = \mathbf{0}$), permitindo que a rocha se deforme livremente em resposta à pressão interna do fluido.
+# O modelo adota uma configuração de **confinamento odométrico**, que simula de forma realista o comportamento de um reservatório confinado pela rocha adjacente:
+#
+# * **Deslocamento Prescrito ($\Gamma_u$):**
+#   * **Face Inferior (Base):** Configurada com uma condição de Dirichlet homogênea total ($\mathbf{u} = (0.0, 0.0)^T$). Fisicamente, representa o engastamento do reservatório no embasamento rochoso rígido.
+#   * **Faces Laterais (Esquerda e Direita):** Configuradas com restrição horizontal de roletes, impondo $u_x = 0$, enquanto a componente vertical $u_y$ permanece livre. Isto impede o deslocamento lateral do reservatório (assumindo extensão infinita ou confinamento geomecânico rígido nas laterais), mas permite a sua livre compactação ou expansão vertical.
+#
+# * **Tração Prescrita ($\Gamma_t$ - Condição de Neumann):**
+#   * **Face Superior (Topo):** Sujeita a uma tensão vertical prescrita não-homogênea ($\boldsymbol{\sigma}_{total} \cdot \mathbf{n} = \bar{\mathbf{t}}$), onde $\bar{\mathbf{t}} = (0, -25 \text{ MPa})^T$. Esta força representa o peso da coluna de rocha sobrejacente, que comprime continuamente o topo do reservatório.
 #
 # #### 2. Fronteira Hidráulica ($\partial\Omega = \Gamma_p \cup \Gamma_v$)
-# * **Pressão Prescrita ($\Gamma_p$):** Região com carga hidráulica ou pressão de poro imposta ($p = \bar{p}$). O modelo simula um gradiente de pressão clássico de reservatório:
-#   * **Injeção (Esquerda):** Mantida com pressão elevada, simulando o contato com um poço injetor ou uma zona sobrepressurizada.
-#   * **Produção (Direita):** Mantida sob pressão referente às condições de extração, atuando como uma fronteira drenante (sumidouro) que permite a dissipação e troca de fluido com o exterior.
-# * **Fluxo Normal Prescrito ($\Gamma_v$):** Região onde a velocidade de filtragem de Darcy na direção normal é controlada ($\mathbf{v} \cdot \mathbf{n} = \bar{q}$). As fronteiras superior e inferior operam sob a condição de paredes impermeáveis:
+# * **Pressão Prescrita ($\Gamma_p$):** O modelo simula um gradiente de pressão transiente clássico:
+#   * **Injeção (Esquerda):** Mantida com pressão elevada (sobrepressão), simulando a introdução de fluido através de um poço injetor ou uma zona sobrepressurizada.
+#   * **Produção (Direita):** Mantida sob pressão reduzida de operação, atuando como uma fronteira drenante (sumidouro) que permite a dissipação e troca de fluido com o exterior.
+#
+# * **Fluxo Normal Prescrito ($\Gamma_v$):** Região onde a velocidade de filtragem de Darcy na direção normal é nula. As fronteiras superior e inferior operam sob a condição de paredes impermeáveis:
 #   $$\mathbf{v} \cdot \mathbf{n} = 0 \quad \text{em} \quad \Gamma_v \text{ (Superior e Inferior)}$$
 #   Isto força o fluxo de fluido a deslocar-se estritamente de forma horizontal, da esquerda para a direita.
 #
 # #### 3. Condições Iniciais ($t = 0$)
-# Como o acoplamento implementado é do tipo One-Way com uma mecânica quasi-estática (equilíbrio mecânico instantâneo a cada instante), a variável que dita a evolução temporal difusiva é a pressão de poro. Define-se o estado hidráulico inicial como um meio totalmente descarregado:
-# $$p(\mathbf{x}, 0) = 150 \quad \text{bar} \quad \text{ => em todo o domínio } \Omega$$
+# Como o acoplamento implementado é do tipo *One-Way* com uma mecânica quasi-estática (equilíbrio mecânico instantâneo a cada instante), a variável que dita a evolução temporal difusiva é a pressão de poro. Define-se o estado hidráulico inicial uniforme em todo o domínio como o estado de equilíbrio hidrostático original do reservatório:
+# $$p(\mathbf{x}, 0) = 150 \quad \text{bar} \quad \forall \mathbf{x} \in \Omega$$
 #
 # #### Interdependência Física das Fronteiras
-# É fundamental destacar que as condições de contorno mecânicas e hidráulicas não são independentes do ponto de vista da resposta física do sistema. A restrição mecânica na esquerda impede a variação do volume local do esqueleto ($\nabla \cdot \mathbf{u} = 0$), o que altera o armazenamento poromecânico aparente e induz respostas de pressão de poro e tensões efetivas locais radicalmente distintas das regiões onde a malha possui total liberdade para expandir ou compactar.
+# Nesta nova configuração, a interdependência poromecânica torna-se ainda mais evidente. Como as laterais estão travadas em $x$, qualquer tentativa de expansão volumétrica ($\nabla \cdot \mathbf{u}$) decorrente da injeção de fluido na esquerda resultará num aumento severo das tensões efetivas horizontais contra as paredes do modelo. Da mesma forma, a sobrecarga de $25\text{ MPa}$ no topo força com que a dissipação da pressão de poro em direção à face drenante direita dite diretamente a taxa de compactação vertical (adensamento) do meio poroso ao longo do tempo.
 
 # %%
 # Condições iniciais e de contorno
@@ -222,11 +227,19 @@ P0 = 1.0e7  # 150 bar
 P_n = Function(Q, name="pressao_inicial").assign(P0)
 P_initial = Function(Q, name="pressao_plot_inicial").assign(P_n)
 
-# Condições de Contorno
-bc_u = DirichletBC(V, Constant((0.0, 0.0)), 1)  # Engastado na esquerda
+# Condições de Contorno Hidráulicas
 bc_P_esq = DirichletBC(Q, P_inj_val, 1)  # Pressão maior na esquerda
 bc_P_dir = DirichletBC(Q, P_prod_val, 2)  # Pressão menor na direita
 bcs_fluido = [bc_P_esq, bc_P_dir]
+
+# Condições de Contorno Mecânicas (Odométricas) - Murad
+bc_u_base = DirichletBC(V, Constant((0.0, 0.0)), 3)  # Base travada
+bc_u_esq = DirichletBC(V.sub(0), Constant(0.0), 1)  # Lateral esquerda: ux = 0
+bc_u_dir = DirichletBC(V.sub(0), Constant(0.0), 2)  # Lateral direita: ux = 0
+bcs_solido = [bc_u_base, bc_u_esq, bc_u_dir]
+
+# Vetor de Tração Externa (Neumann no Topo - Face 4) - Ir mudando e observando efeitos
+T_sobrecarga = Constant((0.0, -25.0e6))
 
 # Funções para armazenar os campos atuais - SOLUÇÕES
 P_h = Function(Q, name="pressao_atual")
@@ -235,11 +248,14 @@ u_h = Function(V, name="deslocamento_atual")
 # %%
 # Forma fraca das edp's
 
+# Lado esquerdo e direito do fluido (Euler Implícito)
 a_fluido = (beta * P * q + dt * (k_perm / mu_f) * inner(grad(P), grad(q))) * dx
 L_fluido = beta * P_n * q * dx
 
+
+# Forma fraca do sólido corrigida (MURAD)
 a_solido = inner(sigma(u), epsilon(v)) * dx
-L_solido = -dot(grad(P_h), v) * dx
+L_solido = P_h * div(v) * dx + dot(T_sobrecarga, v) * ds(4)
 
 # %% [markdown]
 # ### Loop temporal
@@ -282,11 +298,11 @@ for step in range(1, num_steps + 1):
         solver_parameters={"ksp_type": "preonly", "pc_type": "lu"},
     )
 
-    # Resolver problema mecânico
+    # Resolver problema mecânico - condições odométricas
     solve(
         a_solido == L_solido,
         u_h,
-        bcs=bc_u,
+        bcs=bcs_solido,
         solver_parameters={"ksp_type": "preonly", "pc_type": "lu"},
     )
 
@@ -483,4 +499,68 @@ axes_em[1].set_ylabel("y (m)")
 axes_em[1].set_title("Tensão de von Mises")
 axes_em[1].set_aspect("equal")
 
+plt.show()
+
+# %% [markdown]
+# ### **Sugestões - Murad/Volpatto**
+#
+# ### Perfil de Análise Linear: Resposta Hidromecânica ao Longo de $y = L_y/2$
+#
+# Com o objetivo de investigar quantitativamente a resposta hidromecânica do sistema e reduzir as limitações interpretativas inerentes aos mapas de contorno bidimensionais, realiza-se a extração de um perfil linear (*line-out*) das variáveis primárias analisadas: a pressão de poros ($P$) e a magnitude do vetor deslocamento ($\|\mathbf{u}\|$).
+#
+# A amostragem é efetuada ao longo da linha horizontal que atravessa o centro geométrico do domínio computacional, correspondente à coordenada $y = L_y/2$, para todo $x \in [0, L_x]$. Essa estratégia permite examinar, de forma direta e contínua, a evolução espacial das respostas hidráulica e mecânica ao longo da principal direção de escoamento.
+#
+# O perfil obtido descreve a transição entre a região de injeção a montante ($x = 0$), caracterizada por maiores níveis de pressão, e a zona de produção ou drenagem a jusante ($x = L_x$), onde a pressão tende a diminuir em função das condições de contorno impostas. A análise simultânea de $P$ e $\|\mathbf{u}\|$ permite identificar a distribuição do gradiente hidráulico e sua influência sobre a deformação do meio poroso.
+#
+# Como o problema é formulado sob um esquema de acoplamento unidirecional (*one-way coupling*), o campo de pressão atua como carregamento para o problema mecânico, enquanto as deformações do esqueleto sólido não alteram a solução hidráulica. Dessa forma, os perfis extraídos permitem avaliar como as variações espaciais de pressão se refletem na resposta mecânica do meio, evidenciando a relação causal entre a distribuição de pressão e os deslocamentos induzidos ao longo do domínio.
+#
+#
+#
+#
+
+# %%
+print("Gerando perfil de corte horizontal na metade da altura (y = Ly/2)...")
+
+num_pontos = 200
+x_coords = np.linspace(0.0, Lx, num_pontos)
+pontos_corte = [(x, Ly / 2.0) for x in x_coords]
+
+# Extração dos perfis
+p_perfil = np.array(P_h.at(pontos_corte, tolerance=1e-6)) / 1e6  # MPa
+u_perfil = np.array(u_mag.at(pontos_corte, tolerance=1e-6))  # m
+
+
+fig_perfil, ax_p = plt.subplots(figsize=(10, 5), constrained_layout=True)
+
+# Eixo esquerdo: Pressão de poros
+linha_p = ax_p.plot(
+    x_coords, p_perfil, color="red", linewidth=2.5, label="Pressão de Poros (MPa)"
+)
+ax_p.set_xlabel("Posição Horizontal, x (m)")
+ax_p.set_ylabel("Pressão de Poros (MPa)", color="red")
+ax_p.tick_params(axis="y", labelcolor="red")
+ax_p.set_xlim(0, Lx)
+ax_p.grid(True, which="both", linestyle=":", alpha=0.6)
+
+
+# Eixo direito: Magnitude do deslocamento
+ax_u = ax_p.twinx()
+linha_u = ax_u.plot(
+    x_coords,
+    u_perfil,
+    color="blue",
+    linestyle="--",
+    linewidth=2.5,
+    label=r"Magnitude $\|\mathbf{u}\|$ (m)",
+)
+ax_u.set_ylabel(r"Magnitude do Deslocamento $\|\mathbf{u}\|$ (m)", color="blue")
+ax_u.tick_params(axis="y", labelcolor="blue")
+
+linhas_totais = linha_p + linha_u
+labels_totais = [linha.get_label() for linha in linhas_totais]
+
+ax_p.legend(linhas_totais, labels_totais, loc="upper right", frameon=True)
+ax_p.set_title(
+    r"Perfis de Pressão de Poros e Deslocamento ao Longo de $y=L_y/2$", fontsize=13
+)
 plt.show()
