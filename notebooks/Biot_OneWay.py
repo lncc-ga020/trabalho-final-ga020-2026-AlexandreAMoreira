@@ -39,7 +39,7 @@
 # onde o tensor de tensões para elasticidade linear isotrópica é dado por
 #
 # $$
-# \sigma(\mathbf{u}) = 2\mu\,\varepsilon(\mathbf{u}) + \lambda\,\operatorname{tr}(\varepsilon(\mathbf{u}))\,\mathbf{I},
+# \sigma(\mathbf{u}) = 2\mu\,\varepsilon(\mathbf{u}) + \lambda\,\operatorname{tr}(\varepsilon(\mathbf{u}))\,\mathbf{I} + \sigma_{0},
 # $$
 #
 # e o tensor de pequenas deformações é
@@ -132,18 +132,32 @@ mu = Constant(mu_value)
 lambda_ = Constant(lambda_value)
 I = Identity(domain.geometric_dimension)
 
+# Tensão In-Situ (Estado de tensão inicial da rocha a milhares de metros)
+sigma_h0 = -50.0e6  # Compressão horizontal (50 MPa)
+sigma_v0 = -70.0e6  # Compressão vertical (70 MPa)
+
+sigma_0 = as_tensor([[Constant(sigma_h0), 0.0], [0.0, Constant(sigma_v0)]])
+
 # Dados do problema hidráulico
+P0 = 1.5e7
 P_inj_val = 2.5e7  # 250 bar (Injeção na Esquerda)
 P_prod_val = 1.5e7  # 150 bar (Produção na Direita)
+
+# Propriedades Poroelásticas (Beta -> One-Way)
+porosidade = Constant(0.20)  # Porosidade do arenito (20%)
+c_f = Constant(4.0e-10)  # Compressibilidade da água (Pa^-1)
+c_m = Constant(1.0e-9)  # Compressibilidade da matriz da rocha (Pa^-1)
+beta = Constant(porosidade * c_f + c_m)  # Coef. de Armazenamento Específico
+
+# Fluido e Permeabilidade
+k_perm_val = 1.0e-15  # Permeabilidade do Arenito (m²)
+mu_f_val = 1.0e-3  # Viscosidade da Água (Pa.s)
+inv_K = Constant(mu_f_val / k_perm_val)  # Resistividade Hidráulica (1/K)
 
 # Discretização temporal
 total_time = 100.0 * 24.0 * 3600
 num_steps = 150
 dt_value = total_time / num_steps
-
-beta = Constant(5.0e-9)  # Compressibilidade (Pa^-1)
-k_perm = Constant(1.0e-17)  # Permeabilidade da rocha (m²) k_perm = Constant(1.0e-15)
-mu_f = Constant(1.0e-3)  # Viscosidade da Água (Pa.s)
 dt = Constant(dt_value)  # Passo de tempo
 
 
@@ -222,14 +236,16 @@ def sigma(w):
 # %%
 # Condições iniciais e de contorno
 
-# Condição Inicial
-P0 = 2.0e7
+# Condição Inicial (na célula de dados)
 P_n = Function(Q, name="pressao_inicial").assign(P0)
 P_initial = Function(Q, name="pressao_plot_inicial").assign(P_n)
 
+# Rampa de injeção: Começa em P0 para não dar choque numérico
+P_inj_atual = Constant(P0)
+
 # Condições de Contorno Hidráulicas
-bc_P_esq = DirichletBC(Q, P_inj_val, 1)  # Pressão maior na esquerda
-bc_P_dir = DirichletBC(Q, P_prod_val, 2)  # Pressão menor na direita
+bc_P_esq = DirichletBC(Q, P_inj_atual, 1)  # Variável no tempo
+bc_P_dir = DirichletBC(Q, P_prod_val, 2)  # Fixa
 bcs_fluido = [bc_P_esq, bc_P_dir]
 
 # Condições de Contorno Mecânicas (Odométricas) - Murad
@@ -239,7 +255,9 @@ bc_u_dir = DirichletBC(V.sub(0), Constant(0.0), 2)  # Lateral direita: ux = 0
 bcs_solido = [bc_u_base, bc_u_esq, bc_u_dir]
 
 # Vetor de Tração Externa (Neumann no Topo - Face 4) - Ir mudando e observando efeitos
-T_sobrecarga = Constant((0.0, -25.0e6))
+# Carga de equilíbrio inicial calculada (-70 MPa in-situ - 15 MPa poro = -85 MPa)
+carga_equilibrio = -85.0e6
+T_sobrecarga = Constant((0.0, carga_equilibrio))
 
 # Funções para armazenar os campos atuais - SOLUÇÕES
 P_h = Function(Q, name="pressao_atual")
@@ -249,13 +267,15 @@ u_h = Function(V, name="deslocamento_atual")
 # Forma fraca das edp's
 
 # Lado esquerdo e direito do fluido (Euler Implícito)
-a_fluido = (beta * P * q + dt * (k_perm / mu_f) * inner(grad(P), grad(q))) * dx
+a_fluido = (beta * P * q + dt * (1.0 / inv_K) * inner(grad(P), grad(q))) * dx
 L_fluido = beta * P_n * q * dx
 
 
 # Forma fraca do sólido corrigida (MURAD)
 a_solido = inner(sigma(u), epsilon(v)) * dx
-L_solido = P_h * div(v) * dx + dot(T_sobrecarga, v) * ds(4)
+L_solido = (
+    P_h * div(v) * dx + dot(T_sobrecarga, v) * ds(4) - inner(sigma_0, epsilon(v)) * dx
+)
 
 # %% [markdown]
 # ### Loop temporal
@@ -284,12 +304,18 @@ steps_to_plot = [
     int(num_steps * 0.60),
     num_steps,
 ]
-P_instantes = []
-u_instantes = []
-t_instantes = []
+
+P_instantes, u_instantes, t_instantes = [], [], []
 
 
 for step in range(1, num_steps + 1):
+
+    tempo_atual_dias = times_days[step]
+
+    # Atualiza a rampa de injeção (atinge pressão máxima em 5 dias)
+    fator_rampa = min(tempo_atual_dias / 5.0, 1.0)
+    P_inj_atual.assign(P0 + (P_inj_val - P0) * fator_rampa)
+
     # Resolver problema hidráulico
     solve(
         a_fluido == L_fluido,
@@ -310,7 +336,7 @@ for step in range(1, num_steps + 1):
     mean_pressures[step] = float(assemble(P_h * dx) / domain_area)
 
     # Deslocamento máximo
-    u_mag_temp = Function(Q).interpolate(sqrt(dot(u_h, u_h)))
+    u_mag_temp = Function(Q).interpolate(sqrt(dot(u_h, u_h) + 1e-14))
     max_displacements[step] = u_mag_temp.dat.data_ro.max()
 
     # Energia Elástica - AULA MEF (Volpatto)
@@ -339,7 +365,7 @@ print("Quantidades de interesse de engenharia\n")
 print("-----------------------------------------")
 u_x = Function(Q, name="u_x").interpolate(u_h[0])
 u_y = Function(Q, name="u_y").interpolate(u_h[1])
-u_mag = Function(Q, name="u_mag").interpolate(sqrt(dot(u_h, u_h)))
+u_mag = Function(Q, name="u_mag").interpolate(sqrt(dot(u_h, u_h) + 1e-14))
 strain_energy = 0.5 * assemble(inner(sigma(u_h), epsilon(u_h)) * dx)
 
 print(f"u_x em [{u_x.dat.data_ro.min():.6e}, {u_x.dat.data_ro.max():.6e}] m")
@@ -402,7 +428,7 @@ for i in range(num_instantes):
     axes[0, i].axis("off")
 
     # Linha 2: Evolução do Deslocamento
-    u_mag = Function(Q).interpolate(sqrt(dot(u_instantes[i], u_instantes[i])))
+    u_mag = Function(Q).interpolate(sqrt(dot(u_instantes[i], u_instantes[i]) + 1e-14))
     c2 = tripcolor(u_mag, axes=axes[1, i], cmap="viridis")
     axes[1, i].set_title(f"|u| - {t_instantes[i]:.1f} Dias")
     axes[1, i].set_aspect("equal")
@@ -423,12 +449,21 @@ plt.show()
 
 # %%
 fig_q, ax_q = plt.subplots(figsize=(8, 4), constrained_layout=True)
-collection_q = quiver(u_h, axes=ax_q, scale=0.5, width=0.003, headwidth=4, headlength=5)
+collection_q = quiver(
+    u_h,
+    axes=ax_q,
+    scale=0.5,
+    width=0.003,
+    headwidth=4,
+    headlength=5,
+)
+
 fig_q.colorbar(collection_q, ax=ax_q, label=r"Deslocamento $|\mathbf{u}|$ (m)")
 ax_q.set_aspect("equal")
 ax_q.set_xlabel("x (m)")
 ax_q.set_ylabel("y (m)")
 ax_q.set_title("Campo de deslocamentos")
+
 plt.show()
 
 # %%
@@ -458,15 +493,22 @@ plt.show()
 print("Resultados - Darcy, Deformação Volumétrica e von Mises")
 
 # 1. Velocidade de Darcy - Calculada usando o gradiente da pressão no estado final (P_h)
-v_darcy = project(-(k_perm / mu_f) * grad(P_h), V)
+W_darcy = VectorFunctionSpace(domain, "DG", 0)
+
+# 1. Velocidade de Darcy - Calculada corretamente no espaço DG0 usando inv_K
+v_darcy = project(-(1.0 / inv_K) * grad(P_h), W_darcy)
 
 # 2. Deformação Volumétrica (Escalar)
 eps_vol = project(div(u_h), Q)
 
 # 3. Tensão de von Mises (Escalar) - Usando as componentes da matriz de tensão
-sig = sigma(u_h)
+sig_total = sigma(u_h) + sigma_0  # <-- Somamos aqui para ver a realidade geomecânica
 von_Mises_expr = sqrt(
-    sig[0, 0] ** 2 + sig[1, 1] ** 2 - sig[0, 0] * sig[1, 1] + 3 * sig[0, 1] ** 2
+    sig_total[0, 0] ** 2
+    + sig_total[1, 1] ** 2
+    - sig_total[0, 0] * sig_total[1, 1]
+    + 3 * sig_total[0, 1] ** 2
+    + 1e-14
 )
 von_Mises = project(von_Mises_expr, Q)
 
