@@ -60,7 +60,7 @@
 # $$
 #
 # **2. Problema Mecânico:**
-# Multiplicando a equação de equilíbrio por uma função teste vetorial $\mathbf{v}$ e integrando por partes apenas o termo da tensão (desprezando os termos naturais de contorno), a formulação variacional consiste em encontrar o deslocamento $\mathbf{u}\in W$ tal que, para toda função teste vetorial $\mathbf{v}\in W$,
+# Multiplicando a equação de equilíbrio por uma função teste vetorial $\mathbf{v}$ e integrando por partes o termo da tensão, incorporando explicitamente as condições naturais de contorno de Neumann (tração de sobrecarga) no topo do domínio, a formulação variacional consiste em encontrar o deslocamento $\mathbf{u}\in W$ tal que, para toda função teste vetorial $\mathbf{v}\in W$,
 #
 # $$
 # \int_{\Omega} \boldsymbol{\sigma}'(\mathbf{u}) : \varepsilon(\mathbf{v}) \, d\Omega = \int_{\Omega} P (\nabla \cdot \mathbf{v}) \, d\Omega + \int_{\Gamma_N} \mathbf{t} \cdot \mathbf{v} \, d\Gamma
@@ -87,6 +87,25 @@ from firedrake import PointEvaluator
 
 # isort: on
 # fmt: on
+
+# %% [markdown]
+# ### **Pasta para outputs obtidos**
+
+# %%
+import os
+
+diretorio_atual = os.path.abspath(os.getcwd())
+
+raiz_projeto = (
+    os.path.dirname(diretorio_atual)
+    if os.path.basename(diretorio_atual) == "notebooks"
+    else diretorio_atual
+)
+
+pasta_saida = os.path.join(raiz_projeto, "outputs")
+os.makedirs(pasta_saida, exist_ok=True)
+
+print("Pasta de outputs:", pasta_saida)
 
 # %% [markdown]
 # ### **Definição da geometria da malha e dos espaços de funções**
@@ -155,8 +174,8 @@ mu_f_val = 1.0e-3  # Viscosidade da Água (Pa.s)
 inv_K = Constant(mu_f_val / k_perm_val)  # Resistividade Hidráulica (1/K)
 
 # Discretização temporal
-total_time = 100.0 * 24.0 * 3600
-num_steps = 150
+total_time = 800.0 * 24.0 * 3600
+num_steps = 400
 dt_value = total_time / num_steps
 dt = Constant(dt_value)  # Passo de tempo
 
@@ -203,35 +222,52 @@ def sigma(w):
 # %% [markdown]
 # ### Condições Iniciais, de Contorno e Partição da Fronteira
 #
-# Para garantir que o sistema de equações diferenciais parciais acopladas de Biot seja um problema matematicamente bem-posto, é necessário definir o domínio físico ($\Omega$), o intervalo de tempo ($t \in (0, T]$) e um conjunto consistente de condições iniciais e de contorno. 
+# Para garantir a boa colocação matemática do sistema de equações diferenciais parciais acopladas de Biot, determinam-se o domínio físico ($\Omega$), o intervalo temporal de análise ($t \in (0, T]$) e um conjunto consistente de condições iniciais e de contorno. 
 #
-# A fronteira total do domínio ($\partial\Omega$) é dividida em partições disjuntas para os campos mecânico e hidráulico:
+# A fronteira total do domínio ($\partial\Omega$) é particionada de forma disjunta para os campos mecânico e hidráulico, conforme detalhado a seguir:
 #
 # #### 1. Fronteira Mecânica ($\partial\Omega = \Gamma_u \cup \Gamma_t$)
-# O modelo adota uma configuração de **confinamento odométrico**, que simula de forma realista o comportamento de um reservatório confinado pela rocha adjacente:
+# O modelo adota uma configuração de confinamento edométrico, visando reproduzir o comportamento mecânico latitudinal de um reservatório confinado por formações adjacentes:
 #
 # * **Deslocamento Prescrito ($\Gamma_u$):**
-#   * **Face Inferior (Base):** Configurada com uma condição de Dirichlet homogênea total ($\mathbf{u} = (0.0, 0.0)^T$). Fisicamente, representa o engastamento do reservatório no embasamento rochoso rígido.
-#   * **Faces Laterais (Esquerda e Direita):** Configuradas com restrição horizontal de roletes, impondo $u_x = 0$, enquanto a componente vertical $u_y$ permanece livre. Isto impede o deslocamento lateral do reservatório (assumindo extensão infinita ou confinamento geomecânico rígido nas laterais), mas permite a sua livre compactação ou expansão vertical.
+#   * **Face Inferior ($y = 0$):** Aplica-se uma condição de Dirichlet homogênea total ($\mathbf{u} = (0.0, 0.0)^T$), representando o engastamento rígido do reservatório no embasamento rochoso.
+#   * **Faces Laterais ($x = 0$ e $x = L_x$):** Restringe-se o deslocamento horizontal ($\mathbf{u} \cdot \mathbf{n} = 0 \implies u_x = 0$), enquanto a componente vertical ($u_y$) permanece livre. Essa formulação modela o confinamento geomecânico lateral e viabiliza a compactação ou expansão estritamente vertical do meio.
 #
-# * **Tração Prescrita ($\Gamma_t$ - Condição de Neumann):**
-#   * **Face Superior (Topo):** Sujeita a uma tensão vertical prescrita não-homogênea ($\boldsymbol{\sigma}_{total} \cdot \mathbf{n} = \bar{\mathbf{t}}$), onde $\bar{\mathbf{t}} = (0, -25 \text{ MPa})^T$. Esta força representa o peso da coluna de rocha sobrejacente, que comprime continuamente o topo do reservatório.
+# * **Tração Prescrita ($\Gamma_t$):**
+#   * **Face Superior ($y = L_y$):** Submete-se o topo a uma condição de Neumann não-homogênea, definida pelo vetor de tração $\boldsymbol{\sigma}_{total} \cdot \mathbf{n} = \bar{\mathbf{t}}$, onde $\bar{\mathbf{t}} = (0, -85 \text{ MPa})^T$. Esse termo incorpora a sobrecarga litostática total exercida pelas camadas sobrejacentes em estado de equilíbrio inicial.
 #
 # #### 2. Fronteira Hidráulica ($\partial\Omega = \Gamma_p \cup \Gamma_v$)
-# * **Pressão Prescrita ($\Gamma_p$):** O modelo simula um gradiente de pressão transiente clássico:
-#   * **Injeção (Esquerda):** Mantida com pressão elevada (sobrepressão), simulando a introdução de fluido através de um poço injetor ou uma zona sobrepressurizada.
-#   * **Produção (Direita):** Mantida sob pressão reduzida de operação, atuando como uma fronteira drenante (sumidouro) que permite a dissipação e troca de fluido com o exterior.
+# * **Pressão Prescrita ($\Gamma_p$):**
+#   * **Face de Injeção ($x = 0$):** Estabelece-se uma condição de Dirichlet dinâmica, $P(0, y, t) = P_{\text{inj}}(t)$, onde a pressão evolui linearmente de $15\text{ MPa}$ a $25\text{ MPa}$ ao longo dos primeiros 5 dias, permanecendo constante em $25\text{ MPa}$ após esse período.
+#   * **Face de Produção ($x = L_x$):** Fixa-se uma condição de Dirichlet estática, $P(L_x, y, t) = 15\text{ MPa}$, atuando como uma fronteira drenante com pressão hidrostática constante.
 #
-# * **Fluxo Normal Prescrito ($\Gamma_v$):** Região onde a velocidade de filtragem de Darcy na direção normal é nula. As fronteiras superior e inferior operam sob a condição de paredes impermeáveis:
-#   $$\mathbf{v} \cdot \mathbf{n} = 0 \quad \text{em} \quad \Gamma_v \text{ (Superior e Inferior)}$$
-#   Isto força o fluxo de fluido a deslocar-se estritamente de forma horizontal, da esquerda para a direita.
+# * **Fluxo Normal Prescrito ($\Gamma_v$):**
+#   * **Faces Superior e Inferior ($y = L_y$ e $y = 0$):** Impõe-se uma condição de Neumann homogênea para o fluxo de fluido, expressa por:
+#     $$\mathbf{v} \cdot \mathbf{n} = 0$$
+#     Esta restrição estabelece a impermeabilidade dessas superfícies, forçando o escoamento advectivo a desenvolver-se exclusivamente na direção horizontal.
 #
 # #### 3. Condições Iniciais ($t = 0$)
-# Como o acoplamento implementado é do tipo *One-Way* com uma mecânica quasi-estática (equilíbrio mecânico instantâneo a cada instante), a variável que dita a evolução temporal difusiva é a pressão de poro. Define-se o estado hidráulico inicial uniforme em todo o domínio como o estado de equilíbrio hidrostático original do reservatório:
-# $$p(\mathbf{x}, 0) = 150 \quad \text{bar} \quad \forall \mathbf{x} \in \Omega$$
+# Dado que a formulação adota o acoplamento unidirecional (*one-way*) associado a uma aproximação mecânica quasi-estática, a evolução transiente do sistema é governada pelo campo de pressões. O estado hidráulico inicial é definido de forma uniforme em todo o domínio $\Omega$ pelo valor de poro-pressão original:
+# $$P(\mathbf{x}, 0) = 15 \text{ MPa} \quad \forall \mathbf{x} \in \Omega$$
+#
+# O campo de deslocamentos inicial assume configuração nula ($\mathbf{u}(\mathbf{x}, 0) = \mathbf{0}$), visto que o estado mecânico inicial encontra-se previamente equilibrado sob as tensões *in-situ* efetivas vertical e horizontal de $-70\text{ MPa}$ e $-50\text{ MPa}$, respectivamente.
 #
 # #### Interdependência Física das Fronteiras
-# Nesta nova configuração, a interdependência poromecânica torna-se ainda mais evidente. Como as laterais estão travadas em $x$, qualquer tentativa de expansão volumétrica ($\nabla \cdot \mathbf{u}$) decorrente da injeção de fluido na esquerda resultará num aumento severo das tensões efetivas horizontais contra as paredes do modelo. Da mesma forma, a sobrecarga de $25\text{ MPa}$ no topo força com que a dissipação da pressão de poro em direção à face drenante direita dite diretamente a taxa de compactação vertical (adensamento) do meio poroso ao longo do tempo.
+# A formulação descrita evidencia a interdependência poromecânica do modelo. Devido à restrição cinemática lateral ($u_x = 0$), o incremento de poro-pressão decorrente da injeção de fluido induz tensões poroelásticas que elevam os esforços horizontais efetivos contra as fronteiras laterais. Paralelamente, a aplicação da sobrecarga litostática de $85\text{ MPa}$ no topo governa o processo de adensamento vertical, cuja taxa de deformação é controlada diretamente pela dissipação e pelo gradiente transiente da pressão de poro em direção à face drenante de produção.
+
+# %% [markdown]
+# ### Tabela de Condições Iniciais e de Contorno (Edométricas)
+#
+# | Campo | Região / Fronteira | Tipo de Condição | Formulação Matemática | Significado Físico |
+# | :--- | :--- | :--- | :--- | :--- |
+# | **Hidráulico** | Face Esquerda ($\Gamma_1$, $x=0$) | Dirichlet Dinâmico | $P(0, y, t) = P_{\text{inj}}(t)$ <br>*(Rampa de 15 a 25 MPa em 5 dias)* | Fronteira de injeção de fluido no reservatório. |
+# | | Face Direita ($\Gamma_2$, $x=L_x$) | Dirichlet Estático | $P(L_x, y, t) = 15 \text{ MPa}$ | Fronteira drenante de produção (pressão hidrostática constante). |
+# | | Topo e Base ($\Gamma_4$ e $\Gamma_3$, $y=L_y, 0$) | Neumann Homogêneo | $\mathbf{v} \cdot \mathbf{n} = 0$ | Paredes perfeitamente impermeáveis (fluxo estritamente horizontal). |
+# | **Mecânico** | Face Inferior ($\Gamma_3$, $y=0$) | Dirichlet Homogêneo | $\mathbf{u} = (0, 0)^T$ | Engastamento rígido do reservatório no embasamento rochoso. |
+# | | Faces Laterais ($\Gamma_1$ e $\Gamma_2$, $x=0, L_x$) | Dirichlet Parcial | $u_x = 0$ <br>*(Componente $u_y$ livre)* | Condição de rolete lateral. Impede expansão lateral devido ao confinamento geomecânico. |
+# | | Face Superior ($\Gamma_4$, $y=L_y$) | Neumann Não-Homogêneo | $\boldsymbol{\sigma}_{\text{total}} \cdot \mathbf{n} = (0, -85 \text{ MPa})^T$ | Sobrecarga litostática (peso das camadas de rocha sobrejacentes). |
+# | **Condições Iniciais** | Todo o Domínio ($\Omega$, $t=0$) | Hidráulica Inicial | $P(\mathbf{x}, 0) = 15 \text{ MPa}$ | Pressão de poro hidrostática original em equilíbrio no reservatório. |
+# | | Todo o Domínio ($\Omega$, $t=0$) | Mecânica Inicial | $\mathbf{u}(\mathbf{x}, 0) = \mathbf{0}$ <br>Sob $\sigma_{h0} = -50 \text{ MPa}$ e $\sigma_{v0} = -70 \text{ MPa}$ | Estado quasi-estático inicial de tensões *in-situ* compressivas pré-deformação. |
 
 # %%
 # Condições iniciais e de contorno
@@ -298,16 +334,18 @@ strain_energies[0] = float(assemble(0.5 * inner(sigma(u_h), epsilon(u_h)) * dx))
 
 
 # Para plotagem dos campos em instantes arbitrários - Sugestão Volpatto
-steps_to_plot = [
-    int(num_steps * 0.05),
-    int(num_steps * 0.25),
-    int(num_steps * 0.60),
-    num_steps,
-]
 
-P_instantes, u_instantes, t_instantes = [], [], []
+dias_plot = [0, 2, 5, 40, 160, 800]
 
+steps_to_plot = [np.argmin(np.abs(times_days - d)) for d in dias_plot]
 
+P_instantes = [Function(Q).assign(P_n)]
+u_instantes = [Function(V).assign(u_h)]
+t_instantes = [0.0]
+
+# P_instantes, u_instantes, t_instantes = [], [], []
+
+# Loop temporal
 for step in range(1, num_steps + 1):
 
     tempo_atual_dias = times_days[step]
@@ -343,7 +381,7 @@ for step in range(1, num_steps + 1):
     strain_energies[step] = float(assemble(0.5 * inner(sigma(u_h), epsilon(u_h)) * dx))
 
     # Salvar campos nos instantes definidos
-    if step in steps_to_plot:
+    if step in steps_to_plot and times_days[step] > 0.0:
         P_instantes.append(Function(Q).assign(P_h))
         u_instantes.append(Function(V).assign(u_h))
         t_instantes.append(times_days[step])
@@ -407,7 +445,7 @@ ax2_disp.legend(lines, labels, loc="lower right")
 ax2_disp.grid(True)
 ax2_disp.set_title("Respostas Mecânicas Associadas")
 
-# plt.savefig("historico_temporal.png", dpi=300)
+plt.savefig(os.path.join(pasta_saida, "Fluxo_Mecanica.pdf"), dpi=300)
 plt.show()
 
 # %% [markdown]
@@ -422,7 +460,7 @@ fig_spatial, axes = plt.subplots(
 for i in range(num_instantes):
     # Linha 1: Evolução da Pressão
     P_MPa = Function(Q).assign(P_instantes[i] / 1e6)
-    c1 = tripcolor(P_MPa, axes=axes[0, i], cmap="jet", vmin=10.0, vmax=20.0)
+    c1 = tripcolor(P_MPa, axes=axes[0, i], cmap="jet", vmin=15.0, vmax=25.0)
     axes[0, i].set_title(f"Pressão - {t_instantes[i]:.1f} Dias")
     axes[0, i].set_aspect("equal")
     axes[0, i].axis("off")
@@ -441,7 +479,7 @@ fig_spatial.colorbar(
 fig_spatial.colorbar(
     c2, ax=axes[1, :], label="Magnitude Deslocamento (m)", location="right", aspect=20
 )
-
+plt.savefig(os.path.join(pasta_saida, "campos_P_U.pdf"), dpi=300)
 plt.show()
 
 # %% [markdown]
@@ -464,6 +502,7 @@ ax_q.set_xlabel("x (m)")
 ax_q.set_ylabel("y (m)")
 ax_q.set_title("Campo de deslocamentos")
 
+plt.savefig(os.path.join(pasta_saida, "campoU_quiver.pdf"), dpi=300)
 plt.show()
 
 # %%
@@ -481,6 +520,7 @@ for ax, field, title, cmap in [
     ax.set_ylabel("y (m)")
     ax.set_title(title)
 
+plt.savefig(os.path.join(pasta_saida, "Ux_Uy_U.pdf"), dpi=300)
 plt.show()
 
 # %% [markdown]
@@ -529,6 +569,7 @@ ax_d.set_xlabel("x (m)")
 ax_d.set_ylabel("y (m)")
 ax_d.set_title("Campo de Fluxo (Velocidade de Darcy)")
 ax_d.set_aspect("equal")
+plt.savefig(os.path.join(pasta_saida, "Vel_Darcy.pdf"), dpi=300)
 plt.show()
 
 # Tensões - verde mostra expansão, rosa/roxo mostra compressão
@@ -549,6 +590,7 @@ axes_em[1].set_ylabel("y (m)")
 axes_em[1].set_title("Tensão de von Mises")
 axes_em[1].set_aspect("equal")
 
+plt.savefig(os.path.join(pasta_saida, "DefVol_VonMises.pdf"), dpi=300)
 plt.show()
 
 # %% [markdown]
@@ -630,4 +672,5 @@ ax_p.legend(
     ncol=2,
     frameon=True,
 )
+plt.savefig(os.path.join(pasta_saida, "Perfis_Ly_2.pdf"), dpi=300)
 plt.show()
