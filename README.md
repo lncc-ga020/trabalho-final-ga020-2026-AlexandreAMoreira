@@ -1,266 +1,396 @@
-# template-notebooks
+# Modelagem Numérica do Acoplamento Hidromecânico em Reservatórios
 
-Template para atividades de implementação baseados em notebooks Jupyter com ambiente
-reprodutível usando [Pixi](https://pixi.prefix.dev/latest/).
 
-Este repositório serve como ponto de partida para estudos computacionais,
-experimentos numéricos, análises de dados e atividades didáticas em que é
-importante que outras pessoas consigam instalar o mesmo ambiente e reproduzir os
-notebooks com o mínimo possível de configuração manual.
 
-## Objetivos
+Este repositório contém o trabalho final desenvolvido para a disciplina **GA-020 – Solução Numérica de Equações Diferenciais**, do Programa de **Programa de Pós-Graduação de Modelagem Computacional (LNCC)**.
 
-- Padronizar projetos de notebooks usados em atividades científicas e
-  acadêmicas.
-- Facilitar a reprodução dos resultados por alunos e colaboradores.
-- Evitar problemas comuns de ambiente, como versões diferentes de Python,
-  NumPy, SciPy, Jupyter ou outras bibliotecas.
-- Manter notebooks e scripts auxiliares organizados e formatados.
 
-## Conteúdo do repositório
 
-- `pixi.toml`: define o ambiente computacional do projeto e as tarefas
-  disponíveis.
-- `pixi.lock`: registra as versões resolvidas das dependências para melhorar a
-  reprodutibilidade.
-- `.pre-commit-config.yaml`: configura verificações automáticas de formatação e
-  limpeza dos notebooks.
-- `jupytext.toml`: configura o uso do Jupytext para sincronizar notebooks
-  `.ipynb` com arquivos texto equivalentes, quando aplicável.
-- `scripts/sync_notebooks.py`: sincroniza notebooks usando Jupytext.
-- `notebooks/`: diretório esperado para os notebooks do projeto.
+---
 
-Se o diretório `notebooks/` ainda não existir no seu clone local, crie-o antes
-de adicionar novos notebooks:
 
-```sh
-mkdir -p notebooks
+
+# Objetivo do Trabalho
+
+
+
+O objetivo deste projeto é desenvolver um modelo computacional para simular o comportamento hidromecânico de um reservatório poroso saturado utilizando o **Método dos Elementos Finitos (MEF)** através do framework **Firedrake**.
+
+
+
+O modelo considera a teoria da **poroelasticidade linear de Biot** sob a hipótese de **acoplamento unidirecional (One-Way Coupling)**, em que:
+
+
+
+1. Resolve-se a difusão transiente da pressão de poros governada pela Lei de Darcy;
+
+2. O campo de pressão obtido é utilizado como carregamento para determinar a resposta mecânica do meio poroso através da elasticidade linear.
+
+
+
+Ao final da simulação são obtidas diversas quantidades de interesse de engenharia, como:
+
+
+
+- Evolução temporal da pressão média;
+
+- Deslocamento máximo;
+
+- Energia elástica;
+
+- Campo de pressão;
+
+- Campo de deslocamentos;
+
+- Velocidade de Darcy;
+
+- Deformação volumétrica;
+
+- Tensão equivalente de von Mises;
+
+- Perfis hidromecânicos ao longo do domínio.
+
+
+
+---
+
+
+
+# Estrutura do Repositório
+
+
+
+```text
+
+PROJETO-HIDROMECANICA/
+
+│
+
+├── notebooks/
+
+│   └── oneway.ipynb
+
+│
+
+├── outputs/
+
+│   ├── Fluxo_Mecanica.pdf
+
+│   ├── campos_P_U.pdf
+
+│   ├── campoU_quiver.pdf
+
+│   ├── Ux_Uy_U.pdf
+
+│   ├── Vel_Darcy.pdf
+
+│   ├── DefVol_VonMises.pdf
+
+│   └── Perfis_Ly_2.pdf
+
+│
+
+├── pixi.toml
+
+├── pixi.lock
+
+├── README.md
+
+└── LICENSE
+
+```
+---
+
+
+
+# Como Reproduzir os Resultados
+
+
+
+Siga os passos abaixo para configurar o ambiente e reproduzir todos os resultados apresentados.
+
+
+
+## Pré-requisitos
+
+
+
+- Git
+
+- Pixi
+
+- Firedrake
+
+
+
+Este projeto utiliza o framework **Firedrake** para a resolução numérica do problema de Elementos Finitos.
+
+
+
+A instalação do Firedrake pode ser realizada conforme a documentação oficial:
+
+
+
+https://www.firedrakeproject.org/install.html
+
+
+
+> **Observação:** Este trabalho foi desenvolvido em um computador com Windows utilizando o **Windows Subsystem for Linux (WSL2)**. Entretanto, o código pode ser ser executado em qualquer sistema operacional suportado pelo Firedrake, desde que o ambiente seja configurado corretamente.
+
+
+
+---
+
+
+
+# 1. Clonar o Repositório
+
+
+
+
+```bash
+git clone [https://github.com/lncc-ga020/trabalho-final-ga020-2026-AlexandreAMoreira.git](https://github.com/lncc-ga020/trabalho-final-ga020-2026-AlexandreAMoreira.git)
+cd trabalho-final-ga020-2026-AlexandreAMoreira
+
 ```
 
-## Como usar
 
-### 1. Instale o Pixi
 
-Este projeto usa o Pixi para criar um ambiente isolado e reprodutível. Isso
-significa que as bibliotecas usadas nos notebooks ficam separadas das
-bibliotecas instaladas no restante do seu computador.
+---
 
-Instale o Pixi seguindo a documentação oficial:
 
-<https://pixi.prefix.dev/latest/installation/>
 
-Depois da instalação, feche e abra novamente o terminal. Para conferir se o
-Pixi está disponível, rode:
+# 2. Configurar o Ambiente
 
-```sh
-pixi --version
+
+
+Este projeto utiliza o gerenciador de ambientes **Pixi**.
+
+
+
+Caso ainda não possua o Pixi instalado, consulte:
+
+
+
+https://pixi.sh/latest/
+
+
+
+Após instalar o Pixi, execute
+
+
+
+```bash
+
+pixi install
+
 ```
 
-### 2. Baixe o repositório
 
-Clone o repositório:
 
-```sh
-git clone https://github.com/lncc-ga020/template-notebooks.git
-```
+Em seguida, ative o ambiente
 
-Entre na pasta do projeto:
 
-```sh
-cd template-notebooks
-```
 
-### 3. Instale o ambiente do projeto
+```bash
 
-Dentro da pasta do projeto, rode:
-
-```sh
-pixi install --frozen
-```
-
-O argumento `--frozen` instrui o Pixi a respeitar o arquivo `pixi.lock`. Isso é
-importante para que todos usem, tanto quanto possível, as mesmas versões das
-dependências.
-
-### 4. Ative o ambiente
-
-Depois da instalação, ative o ambiente:
-
-```sh
 pixi shell
+
 ```
 
-Quando o ambiente está ativo, comandos como `python`, `jupyter`, `ruff` e
-`pre-commit` passam a usar as versões definidas pelo projeto.
 
-### 5. Abra os notebooks
 
-Com o ambiente Pixi ativo, você pode abrir o JupyterLab:
+Todas as dependências do projeto serão instaladas automaticamente.
 
-```sh
+
+
+---
+
+
+
+# 3. Executar o Notebook
+
+
+
+Com o ambiente ativado, execute
+
+
+
+```bash
+
 jupyter lab
+
 ```
 
-Depois disso, abra os arquivos `.ipynb` dentro do diretório `notebooks/`.
 
-Também é possível usar o VS Code. Nesse caso, uma forma prática é abrir o VS
-Code a partir do terminal em que o ambiente Pixi já está ativo:
 
-```sh
-code .
+ou
+
+
+
+```bash
+
+jupyter notebook
+
 ```
 
-No VS Code, abra o notebook desejado e selecione o interpretador Python do
-ambiente Pixi do projeto. Se você usa VS Code com frequência, também é
-recomendável instalar uma extensão para integração com ambientes Pixi.
 
-## Fluxo de trabalho recomendado
 
-1. Atualize sua cópia local do repositório antes de começar a trabalhar:
+Abra o notebook
 
-   ```sh
-   git pull
-   ```
 
-2. Ative o ambiente:
 
-   ```sh
-   pixi shell
-   ```
+```text
 
-3. Abra o JupyterLab ou o VS Code.
+notebooks/oneway.ipynb
 
-4. Trabalhe nos notebooks dentro de `notebooks/`.
-
-5. Antes de enviar alterações, rode:
-
-   ```sh
-   pixi run precommit-sync
-   ```
-
-Esse comando sincroniza os notebooks com Jupytext e executa as verificações de
-formatação configuradas para o projeto.
-
-## Configuração para desenvolvimento
-
-Se você pretende modificar notebooks, scripts ou arquivos do projeto, instale os
-hooks do `pre-commit` depois de clonar o repositório:
-
-```sh
-pixi shell
-pre-commit install
 ```
 
-Isso instala verificações automáticas que rodam antes de cada commit. Elas ajudam
-a manter os notebooks limpos, padronizados e mais fáceis de revisar.
 
-Se você clonar este repositório novamente em outra pasta do computador, será
-necessário rodar `pre-commit install` também nessa nova cópia.
 
-## Tarefas Pixi úteis
+e execute todas as células na ordem apresentada.
 
-Alguns comandos já estão definidos em `pixi.toml`:
 
-```sh
-pixi run notebooks-smoke
+
+---
+
+
+
+# Resultados Esperados
+
+
+
+Ao término da execução será criada automaticamente a pasta
+
+
+
+```text
+
+outputs/
+
 ```
 
-Lista os notebooks encontrados em `notebooks/`. É uma verificação rápida para
-confirmar que o diretório de notebooks está organizado.
 
-```sh
-pixi run notebooks-sync
-```
 
-Sincroniza notebooks `.ipynb` com Jupytext.
+contendo as seguintes figuras:
 
-```sh
-pixi run precommit
-```
 
-Executa as verificações do `pre-commit` em todos os arquivos.
 
-```sh
-pixi run precommit-sync
-```
+| Arquivo | Descrição |
 
-Sincroniza os notebooks e depois executa as verificações do `pre-commit`.
+|---------|-----------|
 
-## Boas práticas para notebooks científicos
+| Fluxo_Mecanica.pdf | Evolução temporal da pressão média, deslocamento máximo e energia elástica |
 
-- Coloque notebooks principais em `notebooks/`.
-- Use nomes descritivos, por exemplo `analise_dados_experimento_01.ipynb`.
-- Evite depender de arquivos que existem apenas no seu computador.
-- Registre no próprio notebook quais dados, parâmetros e hipóteses foram usados.
-- Mantenha células em uma ordem que permita executar o notebook do começo ao
-  fim.
-- Sempre que possível, defina sementes aleatórias em simulações estocásticas.
+| campos_P_U.pdf | Evolução espacial da pressão e da magnitude dos deslocamentos |
 
-## Arquivos gerados localmente
+| campoU_quiver.pdf | Campo vetorial de deslocamentos |
 
-O `.gitignore` deste projeto ignora alguns diretórios e arquivos comuns de saída,
-como:
+| Ux_Uy_U.pdf | Magnitude e componentes do deslocamento |
 
-- `tmp/`
-- `outputs/`
-- `refs/`
-- arquivos `.csv`
-- figuras `.png` dentro de `notebooks/`
+| Vel_Darcy.pdf | Campo de velocidade de Darcy |
 
-Isso ajuda a evitar que resultados temporários ou arquivos grandes sejam
-versionados por engano. Se algum arquivo de resultado for essencial para o
-projeto, discuta antes de adicioná-lo ao Git.
+| DefVol_VonMises.pdf | Deformação volumétrica e tensão equivalente de von Mises |
 
-## Problemas comuns
+| Perfis_Ly_2.pdf | Perfis hidromecânicos ao longo da linha central do domínio |
 
-### O comando `pixi` não foi encontrado
 
-Provavelmente o Pixi não foi instalado ou o terminal ainda não reconheceu a nova
-instalação. Feche e abra o terminal. Se o problema continuar, revise as
-instruções oficiais de instalação do Pixi.
 
-### O notebook não encontra uma biblioteca Python
+Além das figuras, o código imprime no terminal algumas quantidades de interesse de engenharia, incluindo:
 
-Confirme que você ativou o ambiente correto:
 
-```sh
-pixi shell
-```
 
-Se estiver usando VS Code, confira também se o kernel selecionado pertence ao
-ambiente Pixi deste projeto.
+- Pressão média do reservatório;
 
-### As verificações falharam antes do commit
+- Limites do deslocamento horizontal;
 
-Rode:
+- Limites do deslocamento vertical;
 
-```sh
-pixi run precommit-sync
-```
+- Magnitude máxima do deslocamento;
 
-Algumas correções podem ser feitas automaticamente. Depois disso, revise os
-arquivos modificados, execute novamente o comando se necessário e faça o commit.
+- Energia elástica total.
 
-## Licença
 
-Este projeto usa a licença MIT. Veja o arquivo `LICENSE`.
 
-## Declaração de uso de IA
+---
 
-A revisão, refatoração e implementação deste template foi/é assistida por IA. LLMs utilizadas:
 
-- OpenAI Codex;
-- Github Copilot.
 
-## Apoio institucional
+# Modelo Matemático
 
-Este projeto recebe apoio institucional do
-[Laboratório Nacional de Computação Científica (LNCC)](https://www.gov.br/lncc/pt-br),
-unidade de pesquisa do Ministério da Ciência, Tecnologia e Inovação (MCTI),
-Brasil.
+O problema considera um modelo de **poroelasticidade linear** baseado na teoria de **Biot** com **acoplamento unidirecional (One-Way Coupling)**.
 
-<p align="center">
-  <a href="https://www.gov.br/lncc/pt-br">
-    <img src="resources/logo/lncc-mcti.svg" alt="LNCC (MCTI) logo" width="820">
-  </a>
+O sistema resolvido é composto por:
+
+- Equação de difusão da pressão de poros, governada pela Lei de Darcy;
+
+- Equação de equilíbrio da elasticidade linear isotrópica.
+
+A discretização temporal é realizada através do método de **Euler Implícito**, enquanto a discretização espacial utiliza o **Método dos Elementos Finitos** implementado no Firedrake.
+
+
+
+---
+
+
+
+# Dependências
+
+
+
+As principais bibliotecas utilizadas são:
+
+
+
+- Firedrake
+
+- PETSc
+
+- NumPy
+
+- Matplotlib
+
+
+
+As dependências do projeto são gerenciadas automaticamente pelo **Pixi**.
+
+
+
+---
+
+
+
+# Autor
+
+
+
+**Alexandre Altamir Moreira - Mestrando**
+
+Programa de Pós Graduação em Modelagem Computacional
+Laboratório Nacional de Computação Científica (LNCC)
+2026
+
+---
+
+
+# Licença
+
+Este projeto está licenciado sob a licença MIT. Consulte o arquivo `LICENSE` para mais informações.
+
+---
+
+## Declaração de Uso de IA
+
+A revisão estrutural, refatoração e automação dos scripts deste repositório foram assistidas por ferramentas de Inteligência Artificial Generativa.
+**Modelos utilizados:**
+* Gemini (Google);
+* ChatGPT.
+
+---
+
+## Apoio Institucional
+
+Este projeto recebe apoio institucional do [Laboratório Nacional de Computação Científica (LNCC)](https://www.gov.br/lncc/pt-br).
+<p align="left">
+  <img src="resources/logo/lncc-mcti.svg" alt="Logo LNCC MCTI" width="320px"/>
 </p>
