@@ -372,6 +372,23 @@ Laboratório Nacional de Computação Científica (LNCC)
 
 ---
 
+
 # Licença
 
 Este projeto está licenciado sob a licença MIT. Consulte o arquivo `LICENSE` para mais informações.
+
+---
+
+## Declaração de Uso de IA
+
+A revisão estrutural, refatoração e automação dos scripts deste repositório foram assistidas por ferramentas de Inteligência Artificial Generativa.
+* **Modelos utilizados:** Gemini (Google), ChatGPT.
+
+---
+
+## 🤝 Apoio Institucional
+
+Este projeto recebe apoio institucional do [Laboratório Nacional de Computação Científica (LNCC)](https://www.gov.br/lncc/pt-br).
+<p align="left">
+  <img src="resources/logo/lncc-mcti.svg" alt="Logo LNCC MCTI" width="250px"/>
+</p>
